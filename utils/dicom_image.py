@@ -38,7 +38,7 @@ class dicom_image:
             patient_orientation = self.dicom_struct.SharedFunctionalGroupsSequence[0].PlaneOrientationSequence[0].ImageOrientationPatient
 
             dimension_params = self.dicom_struct.SharedFunctionalGroupsSequence[0].PixelMeasuresSequence[0]
-            self.pixel_len_mm = np.array([1, dimension_params.PixelSpacing[0], dimension_params.PixelSpacing[1]])  # Pixel length in mm [z, y, x]
+            self.pixel_len_mm = np.array([dimension_params.SliceThickness, dimension_params.PixelSpacing[0], dimension_params.PixelSpacing[1]])  # Pixel length in mm [z, y, x]
         else:
             print("Invalid dicom image type:", type)
             return
