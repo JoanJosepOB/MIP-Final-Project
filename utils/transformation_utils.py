@@ -1,93 +1,148 @@
 """ Code retrieved and modified from activity_5 and activity_6 branches on https://github.com/PBibiloni/11763 """
 
 import numpy as np
+import quaternion
 import math
 
-
-def multiply_quaternions(
-        q1: tuple[float, float, float, float],
-        q2: tuple[float, float, float, float]
-        ) -> tuple[float, float, float, float]:
-    """ Multiply two quaternions, expressed as (1, i, j, k). """
-
-    return (
-        q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3],
-        q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2],
-        q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1],
-        q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0]
-    )
+from scipy.optimize import minimize
 
 
-def conjugate_quaternion(
-        q: tuple[float, float, float, float]
-        ) -> tuple[float, float, float, float]:
-    """ Multiply two quaternions, expressed as (1, i, j, k). """
-
-    return (
-        q[0], -q[1], -q[2], -q[3]
-    )
+def min_max_norm(image: np.ndarray) -> np.ndarray:
+    min_img, max_img = np.min(image), np.max(image)
+    normalized = (image - min_img) / (max_img - min_img)
+    return normalized
 
 
-def translation(
-        point: tuple[float, float, float],
-        translation_vector: tuple[float, float, float]
-        ) -> tuple[float, float, float]:
-    """ Perform translation of `point` by `translation_vector`. """
-    x, y, z = point
-    v1, v2, v3 = translation_vector
+def apply_transform(reference: np.ndarray, input: np.ndarray, params):
+    coords = get_all_cell_coords(reference)
+    return apply_quaternion_transform(input, coords, params)
 
-    return (x+v1, y+v2, z+v3)
 
-def axial_rotation(
-        point: tuple[float, float, float],
-        angle_in_rads: float,
-        axis_of_rotation: tuple[float, float, float]) -> tuple[float, float, float]:
-    """ Perform axial rotation of `point` around `axis_of_rotation` by `angle_in_rads`. """
-    x, y, z = point
-    v1, v2, v3 = axis_of_rotation
+def apply_inv_transform(reference: np.ndarray, input: np.ndarray, params):
+    coords = get_all_cell_coords(input)
+    return apply_inv_quaternion_transform(reference, coords, params)
+
+
+def translation_then_axial_rotation(coords: np.ndarray, parameters: tuple[float, ...]):
+    t1, t2, t3, angle_in_rads, v1, v2, v3 = parameters
     # Normalize axis of rotation to avoid restrictions on optimizer
     v_norm = math.sqrt(sum([coord ** 2 for coord in [v1, v2, v3]]))
     v1, v2, v3 = v1 / v_norm, v2 / v_norm, v3 / v_norm
 
-    #   Quaternion associated to point.
-    p = (0, x, y, z)
-    #   Quaternion associated to axial rotation.
-    cos, sin = math.cos(angle_in_rads / 2), math.sin(angle_in_rads / 2)
-    q = (cos, sin * v1, sin * v2, sin * v3)
-    #   Quaternion associated to image point
-    q_star = conjugate_quaternion(q)
-    p_prime = multiply_quaternions(q, multiply_quaternions(p, q_star))
-    #   Interpret as 3D point (i.e. drop first coordinate)
-    return p_prime[1], p_prime[2], p_prime[3]
+    trans_coords = coords + np.array([t1, t2, t3])
+
+    rot_axis = np.array([v1, v2, v3]) * angle_in_rads
+    rot_quaternion = quaternion.from_rotation_vector(rot_axis)
+
+    final_coords = quaternion.rotate_vectors(rot_quaternion, trans_coords, axis=1)
+
+    return final_coords
 
 
-
-def translation_then_axialrotation(point: tuple[float, float, float], parameters: tuple[float, ...]):
-    """ Apply to `point` a translation followed by an axial rotation, both defined by `parameters`. """
-    x, y, z = point
+def translation_then_axial_rotation_inv(coords: np.ndarray, parameters: tuple[float, ...]):
     t1, t2, t3, angle_in_rads, v1, v2, v3 = parameters
     # Normalize axis of rotation to avoid restrictions on optimizer
     v_norm = math.sqrt(sum([coord ** 2 for coord in [v1, v2, v3]]))
-    v1, v2, v3 = v1/v_norm, v2/v_norm, v3/v_norm
+    v1, v2, v3 = v1 / v_norm, v2 / v_norm, v3 / v_norm
 
-    translated_point = translation((x, y, z), (t1, t2, t3))
-    final_point = axial_rotation(translated_point, angle_in_rads, (v1, v2, v3))
-    return final_point
+    rot_axis = np.array([v1, v2, v3]) * -angle_in_rads
+    rot_quaternion = quaternion.from_rotation_vector(rot_axis)
 
-def screw_displacement(point: tuple[float, float, float], parameters: tuple[float, ...]):
-    """ Apply to `point` the screw displacement defined by `parameters`. """
-    x, y, z = point
-    v1, v2, v3, angle_in_rads, displacement = parameters
-    # Normalize axis of rotation to avoid restrictions on optimizer
-    v_norm = math.sqrt(sum([coord ** 2 for coord in [v1, v2, v3]]))
-    v1, v2, v3 = v1/v_norm, v2/v_norm, v3/v_norm
+    rot_coords = quaternion.rotate_vectors(rot_quaternion, coords, axis=1)
 
-    rotated_point = axial_rotation((x, y, z), angle_in_rads, (v1, v2, v3))
-    final_point = translation(rotated_point, (v1*displacement, v2*displacement, v3*displacement))
-    return final_point
+    final_coords = rot_coords - np.array([t1, t2, t3])
 
-def vector_of_residuals(ref_points: np.ndarray, inp_points: np.ndarray) -> np.ndarray:
-    """ Given arrays of 3D points with shape (point_idx, 3), compute vector of residuals as their respective distance """
+    return final_coords
 
-    return np.linalg.norm(ref_points - inp_points, axis=0)
 
+def apply_inv_quaternion_transform(input: np.ndarray, ref_lookup_coords: np.ndarray, params):
+    # Apply transformation with respect to center of img
+    correction_to_orig = np.array([input.shape[0] // 2, input.shape[1] // 2, input.shape[2] // 2])
+    final_coords = translation_then_axial_rotation_inv(ref_lookup_coords - correction_to_orig, params)
+    input_lookup_coords = np.round(final_coords).astype(int) + correction_to_orig
+
+    result = np.full_like(input, 0.0)
+
+    keep_coords = filter_coords(input_lookup_coords, input.shape)
+    ref_fill = ref_lookup_coords[keep_coords]
+    inp_read = input_lookup_coords[keep_coords]
+    result[ref_fill[:, 0], ref_fill[:, 1], ref_fill[:, 2]] = input[inp_read[:, 0], inp_read[:, 1], inp_read[:, 2]]
+
+    return result
+
+
+def filter_coords(coords: np.ndarray, bounds: tuple[int, int, int]):
+    return (0 <= coords[:, 0]) & (coords[:, 0] < bounds[0]) & (0 <= coords[:, 1]) & (coords[:, 1] < bounds[1]) & (0 <= coords[:, 2]) & (coords[:, 2] < bounds[2])
+
+
+def apply_quaternion_transform(input: np.ndarray, ref_lookup_coords: np.ndarray, params):
+    # Apply transformation with respect to center of img
+    correction_to_orig = np.array([input.shape[0] // 2, input.shape[1] // 2, input.shape[2] // 2])
+    final_coords = translation_then_axial_rotation(ref_lookup_coords - correction_to_orig, params)
+    input_lookup_coords = np.round(final_coords).astype(int) + correction_to_orig
+
+    result = np.full_like(input, 0.0)
+
+    keep_coords = filter_coords(input_lookup_coords, input.shape)
+    ref_fill = ref_lookup_coords[keep_coords]
+    inp_read = input_lookup_coords[keep_coords]
+    result[ref_fill[:, 0], ref_fill[:, 1], ref_fill[:, 2]] = input[inp_read[:, 0], inp_read[:, 1], inp_read[:, 2]]
+
+    return result
+
+
+def get_all_cell_coords(img: np.ndarray):
+    X_axis = np.arange(0, img.shape[0])
+    Y_axis = np.arange(0, img.shape[1])
+    Z_axis = np.arange(0, img.shape[2])
+    coords_matrix = []
+    for X in X_axis:
+        for Y in Y_axis:
+            for Z in Z_axis:
+                coords_matrix.append(np.array([X, Y, Z]))
+
+    return np.array(coords_matrix)
+
+
+def coregister_images(ref_image: np.ndarray, inp_image: np.ndarray, get_param_history = False):
+    """ Coregister two sets of landmarks using a rigid transformation. """
+
+    initial_parameters = [
+        0, 0, 0,  # Translation
+        0,  # Angle
+        1, 0, 0  # Rotation axis
+    ]
+
+    parameter_history = {"Tx": [], "Ty": [], "Tz": [], "Angle": [], "Vx": [], "Vy": [], "Vz": []}
+    norm_ref_image = min_max_norm(ref_image)
+    norm_ref_image[norm_ref_image < 0.3] = 0.0  # Remove void noise
+    norm_inp_image = min_max_norm(inp_image)
+    norm_inp_image[norm_inp_image < 0.3] = 0.0  # Remove void noise
+
+    coords_matrix = get_all_cell_coords(norm_ref_image)
+
+    def function_to_minimize(parameters):
+        """ Transform input coordinates, then compare with reference."""
+
+        t1, t2, t3, angle_in_rads, v1, v2, v3 = parameters
+        parameter_history["Tx"].append(t1)
+        parameter_history["Ty"].append(t2)
+        parameter_history["Tz"].append(t3)
+        parameter_history["Angle"].append(angle_in_rads)
+        parameter_history["Vx"].append(v1)
+        parameter_history["Vy"].append(v2)
+        parameter_history["Vz"].append(v3)
+
+        result = apply_quaternion_transform(norm_inp_image, coords_matrix, parameters)
+        resid = np.mean(np.square(norm_ref_image - result).flatten())
+
+        return resid
+
+
+    # Apply scalar function optimization
+    result = minimize(function_to_minimize, x0=np.array(initial_parameters), method='Powell')
+
+    if get_param_history:
+        return result, parameter_history
+
+    return result
