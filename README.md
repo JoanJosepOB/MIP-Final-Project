@@ -19,7 +19,3 @@ The repository is structured as follows:
 - `3D_Corregis.py` contains the solution to the second section.
 
 To run the solutions each of the python files in the main folder can be directly executed. Any results may appear directly plotted or be saved in a `results` folder in the same execution directory.
-
-## To do
-- The implementation of the first part may be tweaked.
-- The implementation of the second part of the project is to be further developed.
