@@ -113,7 +113,7 @@ def coregister_images(ref_image: np.ndarray, inp_image: np.ndarray, get_param_hi
         1, 0, 0  # Rotation axis
     ]
 
-    parameter_history = {"Tx": [], "Ty": [], "Tz": [], "Angle": [], "Vx": [], "Vy": [], "Vz": []}
+    parameter_history = {"Error": [], "Tx": [], "Ty": [], "Tz": [], "Angle": [], "Vx": [], "Vy": [], "Vz": []}
     norm_ref_image = min_max_norm(ref_image)
     norm_ref_image[norm_ref_image < 0.3] = 0.0  # Remove void noise
     norm_inp_image = min_max_norm(inp_image)
@@ -135,6 +135,8 @@ def coregister_images(ref_image: np.ndarray, inp_image: np.ndarray, get_param_hi
 
         result = apply_quaternion_transform(norm_inp_image, coords_matrix, parameters)
         resid = np.mean(np.square(norm_ref_image - result).flatten())
+
+        parameter_history["Error"].append(resid)
 
         return resid
 

@@ -42,7 +42,9 @@ for segment_info, segment_slice in zip(segmentation.dicom_struct.PerFrameFunctio
 combined_segmentation = combine_masks(segments, ct_image.array_image.shape)
 
 # Create segmentation gifs to check each segmentation
-for i, k in enumerate(segments.keys()):
-    create_gif(ct_image.array_image, ct_image.pixel_len_mm, dict_to_mask(segments[k], ct_image.array_image.shape), title=segmentation.dicom_struct.SegmentSequence[i].SegmentLabel)
+create_gif(combined_segmentation, ct_image.pixel_len_mm, cmap='tab10', folder="Segmentation/Segments")
 
-create_gif(ct_image.array_image, ct_image.pixel_len_mm, combined_segmentation, "Full Scan")
+for i, k in enumerate(segments.keys()):
+    create_gif(ct_image.array_image, ct_image.pixel_len_mm, dict_to_mask(segments[k], ct_image.array_image.shape), folder="Segmentation/" + segmentation.dicom_struct.SegmentSequence[i].SegmentLabel)
+
+create_gif(ct_image.array_image, ct_image.pixel_len_mm, combined_segmentation, "Segmentation/Full Scan")

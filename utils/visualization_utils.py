@@ -11,7 +11,7 @@ from tqdm import tqdm
 def rotate_on_axial_plane(img_dcm: np.ndarray, angle_in_degrees: float) -> np.ndarray:
     """ Rotate the image on the axial plane. """
 
-    return scipy.ndimage.rotate(img_dcm, angle_in_degrees, (1, 2), reshape=False)
+    return scipy.ndimage.rotate(img_dcm, angle_in_degrees, (1, 2), reshape=False, order=0 if (img_dcm.dtype == bool) or (img_dcm.dtype == np.uint8) else 3)
 
 def MIP_coronal_plane(img_dcm: np.ndarray) -> np.ndarray:
     """ Compute the maximum intensity projection on the coronal orientation. """
@@ -140,7 +140,8 @@ def alpha_projection(image: np.ndarray, mask: np.ndarray, image_cmap="bone", mas
     C1 = matplotlib.colormaps[image_cmap](image)
     C2 = matplotlib.colormaps[mask_cmap](mask) * mask[..., np.newaxis].astype("bool")
 
-    out = C1 * (1 - alpha) + C2 * alpha
+    out = C1
+    out[mask > 0] = C1[mask > 0] * (1 - alpha) + C2[mask > 0] * alpha
 
     return out
 
@@ -160,7 +161,7 @@ def min_max_norm(image: np.ndarray) -> np.ndarray:
     return normalized
 
 
-def create_animation(projections: list, cm, title: str, aspect=None):
+def create_animation(projections: list, cm, folder: str, aspect=None):
     plt.clf()
     fig, ax = plt.subplots()
     ax.set_facecolor("black")
@@ -175,21 +176,22 @@ def create_animation(projections: list, cm, title: str, aspect=None):
         ]
     anim = animation.ArtistAnimation(fig, animation_data,
                                      interval=100, blit=True)
-    anim.save(f'results/{title}/Animation.gif')  # Save animation
+    anim.save(f'results/{folder}/Animation.gif')  # Save animation
     plt.show()  # Show animation
 
 
-def create_gif(full_ct: np.ndarray, pixel_len_mm: np.ndarray = None, mask: np.ndarray = None, title: str = "def", cmap: str = "bone"):
+def create_gif(full_ct: np.ndarray, pixel_len_mm: np.ndarray = None, mask: np.ndarray = None, folder: str = "def", cmap: str = "bone"):
+    plt.rcParams["figure.figsize"] = (8, 6)
     # Create projections varying the angle of rotation
     #   Configure visualization colormap
     cm = matplotlib.colormaps[cmap]
     #   Configure directory to save results
-    os.makedirs(f'results/{title}/', exist_ok=True)
+    os.makedirs(f'results/{folder}/', exist_ok=True)
     #   Create projections
     n = 16
     projections = []
 
-    if full_ct.dtype != bool:
+    if (full_ct.dtype != bool) and (full_ct.dtype != np.uint8):
         full_ct = min_max_norm(full_ct)
         full_ct[full_ct < 0.3] = 0  # Remove void noise
 
@@ -200,21 +202,72 @@ def create_gif(full_ct: np.ndarray, pixel_len_mm: np.ndarray = None, mask: np.nd
             rotated_mask = rotate_on_axial_plane(mask, alpha)
             mask_projection = MIP_sagittal_plane(rotated_mask)
             projection = alpha_projection(projection, mask_projection)
+        else:
+            projection = cm(projection) * projection[..., np.newaxis].astype("bool")
 
         plt.clf()
         ax = plt.axes()
         if pixel_len_mm is None:
-            ax.imshow(projection, cmap=cm)
+            ax.imshow(projection)
         else:
-            ax.imshow(projection, cmap=cm, aspect=pixel_len_mm[0] / pixel_len_mm[1])
+            ax.imshow(projection, aspect=pixel_len_mm[0] / pixel_len_mm[1])
         ax.set_facecolor("black")
-        plt.savefig(f'results/{title}/Projection_{idx}.png')  # Save animation
+        plt.savefig(f'results/{folder}/Projection_{idx}.png')  # Save animation
         projections.append(projection)  # Save for later animation
+
     # Save and visualize animation
     if pixel_len_mm is None:
-        create_animation(projections, cm, title)
+        create_animation(projections, cm, folder)
     else:
-        create_animation(projections, cm, title, aspect=pixel_len_mm[0] / pixel_len_mm[1])
+        create_animation(projections, cm, folder, aspect=pixel_len_mm[0] / pixel_len_mm[1])
+
+
+
+def create_gif_correg(full_ct: np.ndarray, pixel_len_mm: np.ndarray = None, image_2: np.ndarray = None, folder: str = "def", cmap: str = "bone", cmap_2: str = "autumn"):
+    plt.rcParams["figure.figsize"] = (8, 6)
+    # Create projections varying the angle of rotation
+    #   Configure visualization colormap
+    cm = matplotlib.colormaps[cmap]
+    #   Configure directory to save results
+    os.makedirs(f'results/{folder}/', exist_ok=True)
+    #   Create projections
+    n = 16
+    projections = []
+
+    if (full_ct.dtype != bool) and (full_ct.dtype != np.uint8):
+        full_ct = min_max_norm(full_ct)
+        full_ct[full_ct < 0.3] = 0  # Remove void noise
+
+    if (image_2.dtype != bool) and (image_2.dtype != np.uint8):
+        image_2 = min_max_norm(image_2)
+        image_2[image_2 < 0.3] = 0  # Remove void noise
+
+    for idx, alpha in tqdm(enumerate(np.linspace(0, 360*(n-1)/n, num=n)), desc="Creating gif", total=n):
+        rotated_img = rotate_on_axial_plane(full_ct, alpha)
+        projection = MIP_sagittal_plane(rotated_img)
+        if image_2 is not None:
+            rotated_img2 = rotate_on_axial_plane(image_2, alpha)
+            img2_projection = MIP_sagittal_plane(rotated_img2)
+            projection = alpha_projection_img(projection, img2_projection, cmap, cmap_2)
+        else:
+            projection = cm(projection) * projection[..., np.newaxis].astype("bool")
+
+        plt.clf()
+        ax = plt.axes()
+        if pixel_len_mm is None:
+            ax.imshow(projection)
+        else:
+            ax.imshow(projection, aspect=pixel_len_mm[0] / pixel_len_mm[1])
+        ax.set_facecolor("black")
+        plt.savefig(f'results/{folder}/Projection_{idx}.png')  # Save animation
+        projections.append(projection)  # Save for later animation
+
+    # Save and visualize animation
+    if pixel_len_mm is None:
+        create_animation(projections, cm, folder)
+    else:
+        create_animation(projections, cm, folder, aspect=pixel_len_mm[0] / pixel_len_mm[1])
+
 
 
 def create_gif_sagital(full_ct: np.ndarray, pixel_len_mm: np.ndarray, mask: np.ndarray = None, title: str = "def", cmap: str = "bone"):
@@ -251,7 +304,7 @@ def create_gif_sagital(full_ct: np.ndarray, pixel_len_mm: np.ndarray, mask: np.n
         create_animation(projections, cm, title, aspect=pixel_len_mm[0] / pixel_len_mm[1])
 
 
-def visualize_coregistration(image_1: np.ndarray, image_2: np.ndarray, cmap_1="bone", cmap_2="autumn", title:str="coregistration"):
+def visualize_coregistration(image_1: np.ndarray, image_2: np.ndarray, cmap_1="bone", cmap_2="autumn", folder:str="coregistration"):
     plt.rcParams["figure.figsize"] = (10, 5)
     fig, ax = plt.subplots(1,3)
     ax[0].imshow(alpha_projection_img(min_max_norm(median_sagittal_plane(image_1)),
@@ -266,5 +319,5 @@ def visualize_coregistration(image_1: np.ndarray, image_2: np.ndarray, cmap_1="b
                                       min_max_norm(median_axial_plane(image_2)), image_1_cmap=cmap_1,
                                       image_2_cmap=cmap_2, alpha=0.25))
     ax[2].set_title('Axial')
-    plt.savefig(f'results/Coregistration/{title}.png')
+    plt.savefig(f'results/{folder}.png')
     plt.show()

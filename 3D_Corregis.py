@@ -56,11 +56,14 @@ else:
     with open('./results/Coregistration/corregistration_params.npy', 'wb') as f:
         np.save(f, result.x)
 
-    fig, ax = plt.subplots(3,3)
-    ax = ax.flatten()
+    plt.rcParams["figure.figsize"] = (20, 10)
+
     for i, param in enumerate(param_history.keys()):
-        ax[i].plot(np.arange(len(param_history[param])), param_history[param])
-        ax[i].set_title(param)
+        ax = plt.subplot(241+i)
+        ax.plot(np.arange(len(param_history[param])), param_history[param])
+        ax.set_title(param)
+        ax.set_xlabel("Step")
+    plt.savefig(f'results/Coregistration/param_history.png')  # Save search history
     plt.show()
 
 t1, t2, t3, angle_in_rads, v1, v2, v3 = final_params
@@ -72,8 +75,11 @@ print(f'  >> Rotation axis: ({v1}, {v2}, {v3})')
 transformed_patient = apply_transform(resized_phantom, resized_patient, final_params)
 transformed_phantom = apply_inv_transform(resized_phantom, resized_patient, final_params)
 
-visualize_coregistration(transformed_patient, resized_phantom, title="Normalized Space")
-visualize_coregistration(transformed_phantom, resized_patient, title="Patient Space")
+visualize_coregistration(transformed_patient, resized_phantom, folder="Coregistration/Normalized Space")
+visualize_coregistration(transformed_phantom, resized_patient, folder="Coregistration/Patient Space")
+create_gif_correg(transformed_patient, image_2=resized_phantom, folder="Coregistration/Patient Space Rotation", cmap="bone")
+create_gif_correg(transformed_phantom, image_2=resized_patient, folder="Coregistration/Normalized Space Rotation", cmap="bone")
+
 
 # Extract the thalamus region
 important_regions = np.concatenate((np.array([81, 82]), np.arange(121, 151)), axis=None)
@@ -83,4 +89,4 @@ thalamus_mask = get_region_mask(atlas.array_image, important_regions)
 patient_thalamus = patient.to_same_resolution(thalamus_mask)
 adj_patient = adjust_crop(patient.array_image, patient_thalamus)
 transformed_thalamus = apply_inv_transform(patient_thalamus, adj_patient, final_params)
-create_gif(adj_patient, mask=transformed_thalamus, pixel_len_mm=patient.pixel_len_mm, title="Patient Thalamus", cmap="bone")
+create_gif(adj_patient, mask=transformed_thalamus, pixel_len_mm=patient.pixel_len_mm, folder="Coregistration/Patient Thalamus", cmap="bone")
